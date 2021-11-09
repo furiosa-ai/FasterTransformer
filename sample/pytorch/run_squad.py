@@ -21,9 +21,12 @@ import logging
 import os
 import random
 import timeit
+import sys
+import time
 
 import numpy as np
 import torch
+import torch.cuda.nvtx as nvtx  #mgwg
 from torch.utils.data import DataLoader, SequentialSampler
 from tqdm import tqdm
 
@@ -79,6 +82,8 @@ def evaluate(args, model, tokenizer, prefix=""):
     all_results = []
     start_time = timeit.default_timer()
 
+    idx_batch = 0 #mgwg
+
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
         model.eval()
         seq_lens = torch.sum((batch[0] != 0).to(torch.int32), dim=1).numpy()
@@ -94,9 +99,20 @@ def evaluate(args, model, tokenizer, prefix=""):
 
             example_indices = batch[3]
 
-            # outputs = model(**inputs)
-            outputs = model(*inputs)
+            idx_batch += 1
+            time.sleep(1)   #mgwg
 
+            # outputs = model(**inputs)
+            nvtx.range_push("iter_{}" .format( idx_batch) )  #mgwg
+            outputs = model(*inputs)
+            nvtx.range_pop()    #mgwg
+
+            #mgwg
+            time.sleep(1)
+            if idx_batch==2:
+                sys.exit()
+
+        ''' #mgwg
         for i, example_index in enumerate(example_indices):
             eval_feature = features[example_index.item()]
             unique_id = int(eval_feature.unique_id)
@@ -126,6 +142,7 @@ def evaluate(args, model, tokenizer, prefix=""):
                 result = SquadResult(unique_id, start_logits[:seq_lens[i]], end_logits[:seq_lens[i]])
 
             all_results.append(result)
+        '''
 
     evalTime = timeit.default_timer() - start_time
     logger.info("  Evaluation done in total %f secs (%f sec per example)", evalTime, evalTime / len(dataset))

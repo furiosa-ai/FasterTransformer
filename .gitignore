@@ -2,3 +2,5 @@
 *.o
 *build*/
 *.pyc
+tags
+*/tags

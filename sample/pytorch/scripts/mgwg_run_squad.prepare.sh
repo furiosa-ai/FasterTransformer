@@ -13,19 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-if [ "$1" != "ori" ] && [ "$1" != "ths" ] && [ "$1" != "thsext" ]; then
-    echo "wrong model type"
-    echo "[Usage]: bash PATH_TO_THIS_SCRIPT model_type[ori, ths, thsext] data_type[fp32, fp16]"
-    exit 1
-fi
-if [ "$2" != "fp32" ] && [ "$2" != "fp16" ]; then
-    echo "wrong data type"
-    echo "[Usage]: bash PATH_TO_THIS_SCRIPT model_type[ori, ext] data_type[fp32, fp16]"
-    exit 1
-fi
+model_type="thsext" #mgwg
+# if [ "$1" != "ori" ] && [ "$1" != "ths" ] && [ "$1" != "thsext" ]; then
+#     echo "wrong model type"
+#     echo "[Usage]: bash PATH_TO_THIS_SCRIPT model_type[ori, ths, thsext] data_type[fp32, fp16]"
+#     exit 1
+# fi
+data_type="fp16"    #mgwg
+# if [ "$2" != "fp32" ] && [ "$2" != "fp16" ]; then
+#     echo "wrong data type"
+#     echo "[Usage]: bash PATH_TO_THIS_SCRIPT model_type[ori, ext] data_type[fp32, fp16]"
+#     exit 1
+# fi
 
-batch_size=8
-seq_len=384
+# batch_size=8
+# seq_len=384
+batch_size=$1   #mgwg
+seq_len=$2      #mgwg
 
 MAIN_PATH=$PWD
 
@@ -52,22 +56,22 @@ if [ ! -f "vocab.txt" ]; then
 fi
 cd $MAIN_PATH
 
-if [ "$1" == "thsext" ]; then
-    if [ "$2" == "fp32" ]; then
+if [ $model_type == "thsext" ]; then
+    if [ $data_type == "fp32" ]; then
         $MAIN_PATH/bin/encoder_gemm ${batch_size} ${seq_len} 16 64 0 0
     else
         $MAIN_PATH/bin/encoder_gemm ${batch_size} ${seq_len} 16 64 1 0
     fi
 fi
 
-python $MAIN_PATH/pytorch/run_squad.py \
-    --model_name_or_path $MAIN_PATH/pytorch/bert_squad/models/bert-large-uncased-whole-word-masking-finetuned-squad \
-    --do_eval \
-    --do_lower_case \
-    --predict_file $MAIN_PATH/pytorch/bert_squad/squad_data/dev-v1.1.json \
-    --output_dir $MAIN_PATH/pytorch/bert_squad/output/ \
-    --cache_dir $MAIN_PATH/pytorch/bert_squad/models/ \
-    --max_seq_length ${seq_len} \
-    --per_gpu_eval_batch_size ${batch_size} \
-    --model_type $1 \
-    --data_type $2 \
+# python $MAIN_PATH/pytorch/run_squad.py \
+#     --model_name_or_path $MAIN_PATH/pytorch/bert_squad/models/bert-large-uncased-whole-word-masking-finetuned-squad \
+#     --do_eval \
+#     --do_lower_case \
+#     --predict_file $MAIN_PATH/pytorch/bert_squad/squad_data/dev-v1.1.json \
+#     --output_dir $MAIN_PATH/pytorch/bert_squad/output/ \
+#     --cache_dir $MAIN_PATH/pytorch/bert_squad/models/ \
+#     --max_seq_length ${seq_len} \
+#     --per_gpu_eval_batch_size ${batch_size} \
+#     --model_type $model_type \
+#     --data_type $data_type \
