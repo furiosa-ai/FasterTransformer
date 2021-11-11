@@ -24,6 +24,10 @@
 
 using namespace fastertransformer;
 
+#ifdef USE_NVTX
+  bool NVTX_ON = true;
+#endif
+
 template <typename T>
 void device_malloc(T **ptr, int size);
 

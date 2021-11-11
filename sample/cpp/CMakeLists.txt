@@ -34,7 +34,7 @@ set(decoding_sampling_sample_files
 )
 
 add_executable(encoder_sample ${encoder_sample_files})
-target_link_libraries(encoder_sample PUBLIC -lcublas -lcudart encoder)
+target_link_libraries(encoder_sample PUBLIC -lcublas -lcudart encoder nvtx_utils)
 
 add_executable(decoding_beamsearch_sample ${decoding_beamsearch_sample_files})
 target_link_libraries(decoding_beamsearch_sample PUBLIC -lcublas -lcublasLt -lcudart decoder decoding)
