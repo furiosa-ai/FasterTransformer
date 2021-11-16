@@ -1,4 +1,5 @@
-# ex) ./pytorch/scripts/mgwg_gpt_sample.run_time.sh 125M 256 32 8 8 1 1 1
+#! /bin/bash
+# ex) ./pytorch/scripts/mgwg_gpt_sample.run_time.sh 124M 256 32 8 8 1 1 1
 
 # $1 = <model_name>
 # $2 = max input sequence length ( S1 )
@@ -88,5 +89,4 @@ mpirun -n $n_gpu --allow-run-as-root python ./pytorch/gpt_sample.py \
     --output_len $s2 --max_seq_len $max_seq_len \
     --tensor_para_size $tensor_para_size --layer_para_size $layer_para_size \
     --max_batch_size $batch_size --layer_para_batch_size $local_batch_size
-
 

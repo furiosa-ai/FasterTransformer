@@ -1,4 +1,5 @@
-# ex) ./pytorch/scripts/mgwg_gpt_sample.prepare.sh 125M 256 32 8 8 1 1 1
+#! /bin/bash
+# ex) ./pytorch/scripts/mgwg_gpt_sample.prepare.sh 124M 256 32 8 8 1 1 1
 
 # $1 = <model_name>
 # $2 = max input sequence length ( S1 )
