@@ -18,6 +18,7 @@ import os
 import argparse
 import timeit
 import torch
+import torch.cuda.nvtx as nvtx  #mgwg
 import numpy as np
 import utils.gpt_token_encoder as encoder
 from torch.nn.utils.rnn import pad_sequence
@@ -126,19 +127,36 @@ def main():
               layer_num, top_k, top_p, temperature, output_len, max_seq_len, 
               tensor_para_size, layer_para_size, layer_para_batch_size, 
               max_batch_size, lib_path=args.lib_path)
-    gpt.load(ckpt_path=args.ckpt_path)
+
+    if args.ckpt_path=='-1' :
+        print( '[Warning] no ckpt file is specified. Use zero weights instead.' )
+    else :
+        gpt.load(ckpt_path=args.ckpt_path)
+
     if args.fp16:
         gpt.half()
     gpt.cuda()
 
     with torch.no_grad():
+
+        time.sleep(1)   #mgwg
+        nvtx.range_push("GPT forward")  #mgwg
+
         # Generate tokens.
         tokens_batch = gpt(start_ids, start_lengths, attn_mask)
+
+        nvtx.range_pop()    #mgwg
+        time.sleep(1)   #mgwg
+
         if tokens_batch is not None:  # only a thread (rank 0) gets the output, while the others are supposed to return None.
             outputs = []
             tokens_batch = tokens_batch.cpu().numpy()
             for i, (context, tokens) in enumerate(zip(contexts, tokens_batch)):
                 token = tokens[start_lengths[i]:]  # exclude context input from the output
+
+                if args.ckpt_path=='-1' :
+                    tokens=np.minimum( tokens, args.vocab_size-1 )
+
                 output = enc.decode(tokens[start_lengths[i]:])
                 outputs.append(output)
                 print("[INFO] batch {}: \n[Context]\n{}\n\n[Output]\n{}".format(i, context, output))
