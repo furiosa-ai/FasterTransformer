@@ -592,11 +592,11 @@ public:
 #endif
     try
     {
-      //PUSH_RANGE("Encoder Cell")    //mgwg
+      PUSH_RANGE("Encoder Cell")    //mgwg
 
-      //PUSH_RANGE("Encoder/MHA/attention_")    //mgwg
+      PUSH_RANGE("Encoder/MHA/attention_")    //mgwg
       attention_->forward();
-      //POP_RANGE // "Encoder/MHA/attention_"   //mgwg
+      POP_RANGE // "Encoder/MHA/attention_"   //mgwg
 
 #ifndef NDEBUG
       cudaDeviceSynchronize();
@@ -714,7 +714,7 @@ public:
 #endif  
       }
       else{
-        //PUSH_RANGE("Encoder/MHA/att_out_GEMM")    //mgwg
+        PUSH_RANGE("Encoder/MHA/att_out_GEMM")    //mgwg
         cublasMM_cublasLtMM_wrapper(param_.cublaslt_handle, param_.cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N, 
                                     n, m, k, &alpha, 
                                     param_.self_attention.attention_output_weight.kernel, AType_, n,
@@ -722,8 +722,8 @@ public:
                                     &beta, (DataType_ *)attr_matmul_buf_, CType_, n,
                                     param_.stream, cublasAlgoMap_, sm_, cublas_workspace_); 
 
-        //POP_RANGE // "Encoder/MHA/att_out_GEMM"   //mgwg
-        //PUSH_RANGE("Encoder/MHA/add_bias_input_layernorm")    //mgwg
+        POP_RANGE // "Encoder/MHA/att_out_GEMM"   //mgwg
+        PUSH_RANGE("Encoder/MHA/add_bias_input_layernorm")    //mgwg
         add_bias_input_layernorm_kernelLauncher<DataType_>(attr_matmul_buf_,
                                                            param_.from_tensor, 
                                                            param_.self_attention.attention_output_weight.bias,
@@ -731,7 +731,7 @@ public:
                                                            param_.self_layernorm.beta, 
                                                            m, n, param_.stream);
 
-        //POP_RANGE // "Encoder/MHA/add_bias_input_layernorm"   //mgwg
+        POP_RANGE // "Encoder/MHA/add_bias_input_layernorm"   //mgwg
 #ifndef NDEBUG
         cudaDeviceSynchronize();
         check_cuda_error(cudaGetLastError());
@@ -739,7 +739,7 @@ public:
 
         n *= 4;
         
-        //PUSH_RANGE("Encoder/FFN/GEMM1")    //mgwg
+        PUSH_RANGE("Encoder/FFN/GEMM1")    //mgwg
         cublasMM_cublasLtMM_wrapper(param_.cublaslt_handle, param_.cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N, 
                                     n, m, k, &alpha, 
                                     param_.ffn.intermediate_weight.kernel, AType_, n,
@@ -747,11 +747,11 @@ public:
                                     &beta, (DataType_ *)inter_matmul_buf_, CType_, n,
                                     param_.stream, cublasAlgoMap_, sm_, cublas_workspace_); 
                             
-        //POP_RANGE // "Encoder/FFN/GEMM1"   //mgwg
-        //PUSH_RANGE("Encoder/FFN/add_bias_act")    //mgwg
+        POP_RANGE // "Encoder/FFN/GEMM1"   //mgwg
+        PUSH_RANGE("Encoder/FFN/add_bias_act")    //mgwg
         add_bias_act_kernelLauncher<DataType_>(inter_matmul_buf_, param_.ffn.intermediate_weight.bias, m, n, ActivationType::GELU, param_.stream);
       
-        //POP_RANGE // "Encoder/FFN/add_bias_act"   //mgwg
+        POP_RANGE // "Encoder/FFN/add_bias_act"   //mgwg
 #ifndef NDEBUG
         cudaDeviceSynchronize();
         check_cuda_error(cudaGetLastError());
@@ -760,7 +760,7 @@ public:
         n = k;
         k *= 4;
         
-        //PUSH_RANGE("Encoder/FFN/GEMM2")    //mgwg
+        PUSH_RANGE("Encoder/FFN/GEMM2")    //mgwg
 
         cublasMM_cublasLtMM_wrapper(param_.cublaslt_handle, param_.cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N, 
                                     n, m, k, &alpha, 
@@ -769,8 +769,8 @@ public:
                                     &beta, (DataType_ *)(param_.transformer_out), CType_, n,
                                     param_.stream, cublasAlgoMap_, sm_, cublas_workspace_); 
                                     
-        //POP_RANGE // "Encoder/FFN/GEMM2"   //mgwg
-        //PUSH_RANGE("Encoder/FFN/add_bias_input_layernorm")    //mgwg
+        POP_RANGE // "Encoder/FFN/GEMM2"   //mgwg
+        PUSH_RANGE("Encoder/FFN/add_bias_input_layernorm")    //mgwg
          add_bias_input_layernorm_kernelLauncher<DataType_>(param_.transformer_out, 
                                                             attr_matmul_buf_,
                                                             param_.ffn.output_weight.bias,
@@ -778,13 +778,13 @@ public:
                                                             param_.ffn_layernorm.beta,
                                                             m, n, param_.stream);
                                                          
-        //POP_RANGE // "Encoder/FFN/add_bias_input_layernorm"   //mgwg
+        POP_RANGE // "Encoder/FFN/add_bias_input_layernorm"   //mgwg
 #ifndef NDEBUG
         cudaDeviceSynchronize();
         check_cuda_error(cudaGetLastError());
 #endif                                                         
       }
-      //POP_RANGE // "Encoder Cell"   //mgwg
+      POP_RANGE // "Encoder Cell"   //mgwg
     }
     catch (std::runtime_error &error)
     {
