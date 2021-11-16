@@ -28,7 +28,7 @@ def main():
         print ("{}: {}".format(arg, getattr(args, arg)))
     print("=========================================\n")
 
-    with open( "source_sentence.txt", "r" ) as fp :
+    with open( "../sample/source_sentence.txt", "r" ) as fp :
         src_sentence = fp.read()
 
     enc = encoder.get_encoder(args.vocab_file, args.merges_file)

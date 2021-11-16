@@ -1,4 +1,4 @@
-# ex) ./pytorch/scripts/mgwg_gpt_sample.run_time.sh 125M 256 32 8 8 1 1 1
+# ex) ./pytorch/scripts/mgwg_gpt_sample.run_time.sh 124M 256 32 8 8 1 1 1
 
 # $1 = <model_name>
 # $2 = max input sequence length ( S1 )
@@ -26,7 +26,7 @@ n_gpu=$8
 
 max_seq_len=$(($s1+$s2))
 
-if [ $model_name == "125M" ]; then
+if [ $model_name == "124M" ]; then
     head_num=12
     size_per_head=64
     vocab_size=50257
