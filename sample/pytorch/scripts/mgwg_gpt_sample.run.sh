@@ -1,3 +1,4 @@
+#! /bin/bash
 # ex) ./pytorch/scripts/mgwg_gpt_sample.run.sh 124M 256 32 8 8 1 1 1
 
 # $1 = <model_name>
