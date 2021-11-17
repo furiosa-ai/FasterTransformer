@@ -16,6 +16,7 @@ from __future__ import print_function
 
 import os
 import argparse
+import time
 import timeit
 import torch
 import torch.cuda.nvtx as nvtx  #mgwg
@@ -172,10 +173,10 @@ def main():
             for i in range(iterations):
                 tokens_batch = gpt(start_ids, start_lengths, attn_mask)
             
-            time = timeit.default_timer()
+            time_started = timeit.default_timer()
             for i in range(iterations):
                 tokens_batch = gpt(start_ids, start_lengths, attn_mask)
-            time_elapsed = timeit.default_timer() - time
+            time_elapsed = timeit.default_timer() - time_started
             print("[INFO] GPT time costs: {:.2f} ms".format(time_elapsed*1000/iterations))
 
 if __name__ == '__main__':
