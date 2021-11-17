@@ -1,52 +1,97 @@
 #! /bin/bash
 
-for model in 124M 1558M 89B
-do
-  if [[ "${model}" == "124M" ]]; then
-    n_head=12
-  elif [[ "${model}" == "1558M" ]]; then
-    n_head=25
-  else
-    n_head=96
+dry_run=${1:-false}
+
+function run_experiment() {
+  local model=$1
+  local s1=$2
+  local s2=$3
+  local bs=$4
+  local tp=$5
+  local lp=$6
+  local pp=$7
+  if (( ${bs}%${pp} > 0 )); then
+    return
   fi
-  for tp in 1 2 4 8
-  do
-    if [[ $((${n_head} % ${tp})) -ne 0 ]]; then
-      echo ">> Skipping ${n_head} / ${tp}"
-      continue
-    fi
-    if [[ ${tp} -eq 1 ]]; then
-      devices="0"
-    elif [[ ${tp} -eq 2 ]]; then
-      devices="0,1"
-    elif [[ ${tp} -eq 4 ]]; then
-      devices="0,1,2,3"
-    else
-      devices="all"
-    fi
-    for s1 in 32 128 384
-    do
-      for s2 in 32 128
-      do
-        for b in 1 8 32
-        do
-          suffix="_${model}_${s1}_${s2}_${b}_${b}_${tp}tp_1lp"
-          echo ">> Preparing... ${suffix}"
-          ./pytorch/scripts/mgwg_gpt_sample.prepare.sh \
-              "${model}" "${s1}" "${s2}" "${b}" "${b}" "${tp}" 1 "${tp}" \
-              > prepare${suffix}.txt 2> prepare${suffix}_err.txt
-          echo ">> Profiling... ${suffix}"
-          nsys profile -o "gpt${suffix}" --force-overwrite true \
-              --gpu-metrics-device="${devices}" \
-              ./pytorch/scripts/mgwg_gpt_sample.run.sh \
-              "${model}" "${s1}" "${s2}" "${b}" "${b}" "${tp}" 1 "${tp}" \
-              > run${suffix}.txt 2> run${suffix}_err.txt
-          echo ">> Measuring time... ${suffix}"
-          ./pytorch/scripts/mgwg_gpt_sample.run_time.sh \
-              "${model}" "${s1}" "${s2}" "${b}" "${b}" "${tp}" 1 "${tp}" \
-              > time${suffix}.txt 2> time${suffix}_err.txt
-        done
-      done
+  local lbs=$((${bs}/${pp}))
+  local gpus=$((${tp}*${lp}))
+  if (( ${gpus} > 8 )); then
+    return
+  fi
+  local suffix="_${model}_${s1}_${s2}_${bs}_${lbs}_${tp}_${lp}_${gpus}"
+  echo "<< model:${model} / s1:${s1} / s2:${s2} / bs:${bs} / lbs:${lbs} / tp:${tp} / lp:${lp} / pp:${pp} / gpus:${gpus} >>"
+  if [[ "${dry_run}" == "true" ]]; then
+    return
+  fi
+  echo "[$(date +'%H:%M:%S')] Preparing... ${suffix}"
+  ./pytorch/scripts/mgwg_gpt_sample.prepare.sh \
+      "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
+      > prepare${suffix}.txt 2> prepare${suffix}_err.txt
+  sleep 1
+  echo "[$(date +'%H:%M:%S')] Profiling... ${suffix}"
+  nsys profile -o "gpt${suffix}" --force-overwrite true \
+      --gpu-metrics-device="${devices}" \
+      ./pytorch/scripts/mgwg_gpt_sample.run.sh \
+      "${model}" "${s1}" "${s2}" "${b}" "${b}" "${tp}" 1 "${tp}" \
+      > run${suffix}.txt 2> run${suffix}_err.txt
+  sleep 1
+  echo "[$(date +'%H:%M:%S')] Measuring time... ${suffix}"
+  ./pytorch/scripts/mgwg_gpt_sample.run_time.sh \
+      "${model}" "${s1}" "${s2}" "${b}" "${b}" "${tp}" 1 "${tp}" \
+      > time${suffix}.txt 2> time${suffix}_err.txt
+  sleep 1
+}
+
+function batches_and_seq_lens() {
+  local model=$1
+  local tp=$2
+  local lp=$3
+  local pp=$4
+  # fix bs to 8 for now
+  for bs in 8; do
+    run_experiment "${model}" 1 32 8 "${tp}" "${lp}" "${pp}"
+    run_experiment "${model}" 512 1 8 "${tp}" "${lp}" "${pp}"
+  done
+}
+
+function tp_tests() {
+  local model=$1
+  # tp list = $2, $3, $4, ...
+  while [[ $# -gt 1 ]]; do
+    shift
+    batches_and_seq_lens "${model}" "$1" 1 1
+  done
+}
+
+function lp_pp_tests() {
+  local model=$1
+  for lp in 2 4 8; do
+    for pp in 1 2 4 8; do
+      batches_and_seq_lens "${model}" 1 "${lp}" "${pp}"
     done
   done
-done
+}
+
+function tp_lp_tests() {
+  local model=$1
+  for tp in 1 2 4 8; do
+    local lp=$((8/${tp}))
+    # Don't know optimal pp value.. just run all
+    for pp in 1 2 4 8; do
+      batches_and_seq_lens "${model}" "${tp}" "${lp}" "${pp}"
+    done
+  done
+}
+
+echo "<< Tests for tensor parallelism>>"
+tp_tests 124M 1 2 4 # head = 12
+tp_tests 1558M 1 5 # head = 25
+tp_tests 89B 1 2 4 8 # head = 96
+
+echo "<< Tests for layer parallelism>>"
+lp_pp_tests 124M
+lp_pp_tests 1558M
+lp_pp_tests 89B
+
+echo "<< Tests for mixed parallelism>>"
+tp_lp_tests 89B
