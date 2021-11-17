@@ -23,6 +23,24 @@ function run_experiment() {
   if [[ "${dry_run}" == "true" ]]; then
     return
   fi
+  case ${gpus} in
+    1)
+      devices=0
+      ;;
+    2)
+      devices=0,1
+      ;;
+    4)
+      devices=0,1,2,3
+      ;;
+    5)
+      devices=0,1,2,3,4
+      ;;
+    *)
+      devices=all
+      ;;
+  esac
+
   echo "[$(date +'%H:%M:%S')] Preparing... ${suffix}"
   ./pytorch/scripts/mgwg_gpt_sample.prepare.sh \
       "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
