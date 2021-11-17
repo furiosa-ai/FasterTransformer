@@ -32,12 +32,12 @@ function run_experiment() {
   nsys profile -o "gpt${suffix}" --force-overwrite true \
       --gpu-metrics-device="${devices}" \
       ./pytorch/scripts/mgwg_gpt_sample.run.sh \
-      "${model}" "${s1}" "${s2}" "${b}" "${b}" "${tp}" 1 "${tp}" \
+      "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
       > run${suffix}.txt 2> run${suffix}_err.txt
   sleep 1
   echo "[$(date +'%H:%M:%S')] Measuring time... ${suffix}"
   ./pytorch/scripts/mgwg_gpt_sample.run_time.sh \
-      "${model}" "${s1}" "${s2}" "${b}" "${b}" "${tp}" 1 "${tp}" \
+      "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
       > time${suffix}.txt 2> time${suffix}_err.txt
   sleep 1
 }
