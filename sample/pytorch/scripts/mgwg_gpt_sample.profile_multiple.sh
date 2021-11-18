@@ -83,7 +83,10 @@ function tp_tests() {
 
 function lp_pp_tests() {
   local model=$1
-  for lp in 2 4 8; do
+  # lp list = $2, $3, $4, ...
+  while [[ $# -gt 1 ]]; do
+    shift
+    local lp=$1
     for pp in 1 2 4 8; do
       batches_and_seq_lens "${model}" 1 "${lp}" "${pp}"
     done
@@ -92,7 +95,8 @@ function lp_pp_tests() {
 
 function tp_lp_tests() {
   local model=$1
-  for tp in 1 2 4 8; do
+  # 1x8, 8x1 cases are included in tp_tests or lp_pp_tests
+  for tp in 2 4; do
     local lp=$((8/${tp}))
     # Don't know optimal pp value.. just run all
     for pp in 1 2 4 8; do
@@ -104,12 +108,12 @@ function tp_lp_tests() {
 echo "<< Tests for tensor parallelism>>"
 tp_tests 124M 1 2 4 # head = 12
 tp_tests 1558M 1 5 # head = 25
-tp_tests 89B 1 2 4 8 # head = 96
+tp_tests 89B 8 # head = 96
 
 echo "<< Tests for layer parallelism>>"
-lp_pp_tests 124M
-lp_pp_tests 1558M
-lp_pp_tests 89B
+lp_pp_tests 124M 2 4 8
+lp_pp_tests 1558M 2 4 8
+lp_pp_tests 89B 8
 
 echo "<< Tests for mixed parallelism>>"
 tp_lp_tests 89B
