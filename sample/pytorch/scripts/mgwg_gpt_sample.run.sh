@@ -83,7 +83,7 @@ is_fp16=1
 # python ./pytorch/gen_sample_input_file.py --batch_size $batch_size --input_seq_len $s1 --o_file_name ./sample_input.txt
 
 mpirun -n $n_gpu --allow-run-as-root python ./pytorch/gpt_sample.py \
-    --ckpt_path $ckpt_path --fp16 --top_k 0 --top_p 0.9 --sample_input_file ./sample_input.txt \
+    --ckpt_path $ckpt_path --fp16 --top_k 0 --top_p 0 --sample_input_file ./sample_input.txt \
     --layer_num $layer_num --head_num $head_num --size_per_head $size_per_head --vocab_size $vocab_size \
     --output_len $s2 --max_seq_len $max_seq_len \
     --tensor_para_size $tensor_para_size --layer_para_size $layer_para_size \
