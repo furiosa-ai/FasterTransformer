@@ -1,6 +1,21 @@
 #! /bin/bash
 
-dry_run=${1:-false}
+outdir=${1:-output-$(date +'%Y%m%d%H%M%S')}
+if [[ "${outdir}" == "none" ]]; then
+  dry_run=true
+  echo "Dry run for listing configurations..."
+else
+  mkdir -p "${outdir}"
+  echo "Output files will be saved to ${outdir}."
+
+  summary_file="${outdir}/gpt_summary.csv"
+  echo "suffix,model,seq1,seq2,batch_size,local_bs,tensor_p,layer_p,pipeline_p,gpus," \
+      "prepare_ret,timerun_ret,profile_ret,nsys_abort,prepare_stime,timerun_stime,profile_stime," \
+      "prepare_out,prepare_err,timerun_out,timerun_err,profile_out,profile_err,nsys_report" \
+      | tr -d " " > "${summary_file}"
+fi
+
+sleep_time=5
 
 function run_experiment() {
   local model=$1
@@ -11,15 +26,20 @@ function run_experiment() {
   local lp=$6
   local pp=$7
   if (( ${bs}%${pp} > 0 )); then
+    echo "bs(${bs})%pp(${pp}) is not 0."
     return
   fi
   local lbs=$((${bs}/${pp}))
   local gpus=$((${tp}*${lp}))
   if (( ${gpus} > 8 )); then
+    echo "number of gpus (${gpus}) is larger than 8."
     return
   fi
   local suffix="_${model}_${s1}_${s2}_${bs}_${lbs}_${tp}_${lp}_${gpus}"
-  echo "<< model:${model} / s1:${s1} / s2:${s2} / bs:${bs} / lbs:${lbs} / tp:${tp} / lp:${lp} / pp:${pp} / gpus:${gpus} >>"
+  #echo "<< model:${model} / s1:${s1} / s2:${s2} / bs:${bs} / lbs:${lbs} / tp:${tp} / lp:${lp} / pp:${pp} / gpus:${gpus} >>"
+  printf "<< model:%s / s1:%-3d / s2:%-3d / bs:%-2d / lbs:%-2d / tp:%-d / lp:%-d / pp:%-d / gpus:%-d >>\n" \
+      ${model} ${s1} ${s2} ${bs} ${lbs} ${tp} ${lp} ${pp} ${gpus}
+
   if [[ "${dry_run}" == "true" ]]; then
     return
   fi
@@ -41,23 +61,46 @@ function run_experiment() {
       ;;
   esac
 
-  echo "[$(date +'%H:%M:%S')] Preparing... ${suffix}"
-  ./pytorch/scripts/mgwg_gpt_sample.prepare.sh \
+  local prepare_stime=$(date +'%Y-%m-%dT%H:%M:%S')
+  echo "[${prepare_stime}] Preparing... ${suffix}"
+  bash ./pytorch/scripts/mgwg_gpt_sample.prepare.sh \
       "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
-      > prepare${suffix}.txt 2> prepare${suffix}_err.txt
-  sleep 1
-  echo "[$(date +'%H:%M:%S')] Profiling... ${suffix}"
-  nsys profile -o "gpt${suffix}" --force-overwrite true \
+      > "${outdir}/prepare${suffix}.txt" 2> "${outdir}/prepare${suffix}_err.txt"
+  prepare_ret=$? # No local
+
+  sleep ${sleep_time}
+
+  local timerun_stime=$(date +'%Y-%m-%dT%H:%M:%S')
+  echo "[${timerun_stime}] Measuring time... ${suffix}"
+  bash ./pytorch/scripts/mgwg_gpt_sample.run_time.sh \
+      "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
+      > "${outdir}/timerun${suffix}.txt" 2> "${outdir}/timerun${suffix}_err.txt"
+  timerun_ret=$? # No local
+
+  sleep ${sleep_time}
+
+  local profile_stime=$(date +'%Y-%m-%dT%H:%M:%S')
+  echo "[${profile_stime}] Profiling... ${suffix}"
+  nsys profile -o "${outdir}/profile${suffix}" --force-overwrite true \
       --gpu-metrics-device="${devices}" \
-      ./pytorch/scripts/mgwg_gpt_sample.run.sh \
+      bash ./pytorch/scripts/mgwg_gpt_sample.run.sh \
       "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
-      > run${suffix}.txt 2> run${suffix}_err.txt
-  sleep 1
-  echo "[$(date +'%H:%M:%S')] Measuring time... ${suffix}"
-  ./pytorch/scripts/mgwg_gpt_sample.run_time.sh \
-      "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
-      > time${suffix}.txt 2> time${suffix}_err.txt
-  sleep 1
+      > "${outdir}/profile${suffix}.txt" 2> "${outdir}/profile${suffix}_err.txt"
+  profile_ret=$? # No local
+  local nsys_abort=false
+  if [[ "${profile_ret}" == "134" ]]; then
+    nsys_abort=true
+  fi
+
+  echo "${suffix},${model},${s1},${s2},${bs},${lbs},${tp},${lp},${pp},${gpus}," \
+      "${prepare_ret},${timerun_ret},${profile_ret},${nsys_abort}," \
+      "${prepare_stime},${timerun_stime},${profile_stime}," \
+      "prepare${suffix}.txt,prepare${suffix}_err.txt," \
+      "timerun${suffix}.txt,timerun${suffix}_err.txt," \
+      "profile${suffix}.txt,profile${suffix}_err.txt,profile${suffix}.nsys-rep" \
+      | tr -d " " >> "${summary_file}"
+
+  sleep ${sleep_time}
 }
 
 function batches_and_seq_lens() {
@@ -70,6 +113,10 @@ function batches_and_seq_lens() {
     run_experiment "${model}" 1 32 8 "${tp}" "${lp}" "${pp}"
     run_experiment "${model}" 512 1 8 "${tp}" "${lp}" "${pp}"
   done
+}
+
+function np_tests() {
+  batches_and_seq_lens $1 1 1 1
 }
 
 function tp_tests() {
@@ -105,15 +152,23 @@ function tp_lp_tests() {
   done
 }
 
-echo "<< Tests for tensor parallelism>>"
-tp_tests 124M 1 2 4 # head = 12
-tp_tests 1558M 1 5 # head = 25
-tp_tests 89B 8 # head = 96
+echo "<<< gpt 124M model - without parallelism >>>"
+np_tests 124M
+echo "<<< gpt 124M model - tensor parallelism >>>"
+tp_tests 124M 2 4 # heads = 12
+echo "<<< gpt 124M model - layer(/pipeline) parallelism >>>"
+lp_pp_tests 124M 2 4 # layers = 12
 
-echo "<< Tests for layer parallelism>>"
-lp_pp_tests 124M 2 4 8
-lp_pp_tests 1558M 2 4 8
-lp_pp_tests 89B 8
+echo "<<< gpt 1588M model - without parallelism >>>"
+np_tests 1588M
+echo "<<< gpt 1588M model - tensor parallelism >>>"
+tp_tests 1558M 5 # heads = 25
+echo "<<< gpt 1588M model - layer(/pipeline) parallelism >>>"
+lp_pp_tests 1558M 2 4 8 # layers = 48
 
-echo "<< Tests for mixed parallelism>>"
+echo "<<< gpt 89B model - tensor parallelism >>>"
+tp_tests 89B 8 # heads = 96
+echo "<<< gpt 89B model - layer parallelism >>>"
+lp_pp_tests 89B 8 # layers = 48
+echo "<<< gpt 89B model - tensor+layer parallelism >>>"
 tp_lp_tests 89B
