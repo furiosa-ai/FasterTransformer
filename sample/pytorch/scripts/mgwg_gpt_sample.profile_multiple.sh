@@ -10,12 +10,45 @@ else
 
   summary_file="${outdir}/gpt_summary.csv"
   echo "suffix,model,seq1,seq2,batch_size,local_bs,tensor_p,layer_p,pipeline_p,gpus," \
-      "prepare_ret,timerun_ret,profile_ret,nsys_abort,prepare_stime,timerun_stime,profile_stime," \
+      "prepare_ret,timerun_ret,profile_ret,nsys_abort," \
+      "gpt_time_costs_n,gpt_time_costs_mean," \
+      "prepare_time,timerun_time,profile_time," \
       "prepare_out,prepare_err,timerun_out,timerun_err,profile_out,profile_err,nsys_report" \
       | tr -d " " > "${summary_file}"
 fi
 
 sleep_time=5
+
+function start_timer() {
+  SECONDS=0
+}
+
+function get_time_elapsed() {
+  local duration=${SECONDS}
+  printf "%02d:%02d:%02d" $((${duration}/3600)) $(((${duration}/60)%60)) $((${duration}%60))
+}
+
+function get_gpt_time_costs() {
+  local file=$1
+  if [[ ! -f ${file} ]]; then
+    echo "0 N/E"
+    return
+  fi
+  local nums=$(egrep "^\[INFO\] GPT time costs: ([0-9]+(\.[0-9]*)?) ms$" ${file} \
+      | sed -E "s/^\[INFO\] GPT time costs: ([0-9]+(\.[0-9]*)?) ms$/\1/g")
+  local cnt=$(echo ${nums} | wc -w | tr -d " ")
+  if (( ${cnt} == 0 )); then
+    echo "0 N/A"
+    return
+  fi
+  local expression="(0.0"
+  for n in ${nums}; do
+    expression="${expression}+${n}"
+  done
+  expression="${expression})/${cnt}"
+  mean=$(python -c "print(${expression})")
+  echo "${cnt} ${mean}"
+}
 
 function run_experiment() {
   local model=$1
@@ -61,40 +94,48 @@ function run_experiment() {
       ;;
   esac
 
-  local prepare_stime=$(date +'%Y-%m-%dT%H:%M:%S')
-  echo "[${prepare_stime}] Preparing... ${suffix}"
+  echo "[$(date +'%Y-%m-%dT%H:%M:%S')] Preparing... ${suffix}"
+  start_timer
   bash ./pytorch/scripts/mgwg_gpt_sample.prepare.sh \
       "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
       > "${outdir}/prepare${suffix}.txt" 2> "${outdir}/prepare${suffix}_err.txt"
   prepare_ret=$? # No local
+  local prepare_time=$(get_time_elapsed)
+  echo "Elapsed time: ${prepare_time}"
 
   sleep ${sleep_time}
 
-  local timerun_stime=$(date +'%Y-%m-%dT%H:%M:%S')
-  echo "[${timerun_stime}] Measuring time... ${suffix}"
+  echo "[$(date +'%Y-%m-%dT%H:%M:%S')] Measuring time... ${suffix}"
+  start_timer
   bash ./pytorch/scripts/mgwg_gpt_sample.run_time.sh \
       "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
       > "${outdir}/timerun${suffix}.txt" 2> "${outdir}/timerun${suffix}_err.txt"
   timerun_ret=$? # No local
+  local timerun_time=$(get_time_elapsed)
+  echo "Elapsed time: ${timerun_time}"
 
   sleep ${sleep_time}
 
-  local profile_stime=$(date +'%Y-%m-%dT%H:%M:%S')
-  echo "[${profile_stime}] Profiling... ${suffix}"
+  echo "[$(date +'%Y-%m-%dT%H:%M:%S')] Profiling... ${suffix}"
+  start_timer
   nsys profile -o "${outdir}/profile${suffix}" --force-overwrite true \
       --gpu-metrics-device="${devices}" \
       bash ./pytorch/scripts/mgwg_gpt_sample.run.sh \
       "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
       > "${outdir}/profile${suffix}.txt" 2> "${outdir}/profile${suffix}_err.txt"
   profile_ret=$? # No local
+  local profile_time=$(get_time_elapsed)
+  echo "Elapsed time: ${profile_time}"
+
   local nsys_abort=false
   if [[ "${profile_ret}" == "134" ]]; then
     nsys_abort=true
   fi
-
+  local gpt_time_costs=$(get_gpt_time_costs "${outdir}/timerun${suffix}.txt")
   echo "${suffix},${model},${s1},${s2},${bs},${lbs},${tp},${lp},${pp},${gpus}," \
       "${prepare_ret},${timerun_ret},${profile_ret},${nsys_abort}," \
-      "${prepare_stime},${timerun_stime},${profile_stime}," \
+      "$(echo ${gpt_time_costs} | awk '{print $1}'),$(echo ${gpt_time_costs} | awk '{print $2}')," \
+      "${prepare_time},${timerun_time},${profile_time}," \
       "prepare${suffix}.txt,prepare${suffix}_err.txt," \
       "timerun${suffix}.txt,timerun${suffix}_err.txt," \
       "profile${suffix}.txt,profile${suffix}_err.txt,profile${suffix}.nsys-rep" \
@@ -122,7 +163,7 @@ function np_tests() {
 function tp_tests() {
   local model=$1
   # tp list = $2, $3, $4, ...
-  while [[ $# -gt 1 ]]; do
+  while (( $# > 1 )); do
     shift
     batches_and_seq_lens "${model}" "$1" 1 1
   done
@@ -131,7 +172,7 @@ function tp_tests() {
 function lp_pp_tests() {
   local model=$1
   # lp list = $2, $3, $4, ...
-  while [[ $# -gt 1 ]]; do
+  while (( $# > 1 )); do
     shift
     local lp=$1
     for pp in 1 2 4 8; do
