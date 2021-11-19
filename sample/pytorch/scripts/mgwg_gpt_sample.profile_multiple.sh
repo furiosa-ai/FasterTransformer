@@ -29,6 +29,7 @@ else
   summary_file="${outdir}/gpt_summary_${test_name}.csv"
   echo "suffix,model,seq1,seq2,batch_size,local_bs,tensor_p,layer_p,pipeline_p,gpus," \
       "gpt_time_costs_n,gpt_time_costs_mean," \
+      "profiled_gpt_time_costs_n,profiled_gpt_time_costs_mean," \
       "prepare_ret,timerun_ret,profile_ret,nsys_abort," \
       "prepare_time,timerun_time,profile_time," \
       "prepare_out,prepare_err,timerun_out,timerun_err,profile_out,profile_err,nsys_report" \
@@ -66,10 +67,6 @@ function get_gpu_metrics_device() {
 }
 
 function get_gpt_time_costs() {
-  if [[ "${SKIP_TIMERUN}" == "true" ]]; then
-    echo "skip skip"
-    return
-  fi
   local file=$1
   if [[ ! -f ${file} ]]; then
     echo "no_file N/A"
@@ -143,6 +140,7 @@ function run_experiment() {
 
   local timerun_ret="skip"
   local timerun_time="skip"
+  local gpt_time_costs="skip skip"
   if [[ "${SKIP_TIMERUN}" != "true" ]]; then
     echo "[$(date +'%Y-%m-%dT%H:%M:%S')] Measuring time... ${suffix}"
     start_timer
@@ -153,10 +151,12 @@ function run_experiment() {
     timerun_time=$(get_time_elapsed)
     echo "Returned code: ${timerun_ret} / Elapsed time: ${timerun_time}"
     sleep ${sleep_time}
+    gpt_time_costs=$(get_gpt_time_costs "${outdir}/timerun${suffix}.txt")
   fi
 
   local profile_ret="skip"
   local profile_time="skip"
+  local p_gpt_time_costs="skip skip"
   local nsys_abort="skip"
   if [[ "${SKIP_PROFILE}" != "true" ]]; then
     local gpu_metrics_device="$(get_gpu_metrics_device ${gpus})"
@@ -176,11 +176,14 @@ function run_experiment() {
       nsys_abort="no"
     fi
     sleep ${sleep_time}
+    if [[ "${PROFILE_WITH_TIMERUN}" == "true" ]]; then
+      p_gpt_time_costs=$(get_gpt_time_costs "${outdir}/profile${suffix}.txt")
+    fi
   fi
 
-  local gpt_time_costs=$(get_gpt_time_costs "${outdir}/timerun${suffix}.txt")
   echo "${suffix},${model},${s1},${s2},${bs},${lbs},${tp},${lp},${pp},${gpus}," \
       "$(echo ${gpt_time_costs} | awk '{print $1}'),$(echo ${gpt_time_costs} | awk '{print $2}')," \
+      "$(echo ${p_gpt_time_costs} | awk '{print $1}'),$(echo ${p_gpt_time_costs} | awk '{print $2}')," \
       "${prepare_ret},${timerun_ret},${profile_ret},${nsys_abort}," \
       "${prepare_time},${timerun_time},${profile_time}," \
       "$(chk_file prepare${suffix}.txt),$(chk_file prepare${suffix}_err.txt)," \
@@ -246,12 +249,12 @@ tp_tests 124M 2 4 # heads = 12
 echo "<<< gpt 124M model - layer(/pipeline) parallelism >>>"
 lp_pp_tests 124M 2 4 # layers = 12
 
-#echo "<<< gpt 1558M model - without parallelism >>>"
-#np_tests 1558M
-#echo "<<< gpt 1558M model - tensor parallelism >>>"
-#tp_tests 1558M 5 # heads = 25
-#echo "<<< gpt 1558M model - layer(/pipeline) parallelism >>>"
-#lp_pp_tests 1558M 2 4 8 # layers = 48
+echo "<<< gpt 1558M model - without parallelism >>>"
+np_tests 1558M
+echo "<<< gpt 1558M model - tensor parallelism >>>"
+tp_tests 1558M 5 # heads = 25
+echo "<<< gpt 1558M model - layer(/pipeline) parallelism >>>"
+lp_pp_tests 1558M 2 4 8 # layers = 48
 
 echo "<<< gpt 2525M model - without parallelism >>>"
 np_tests 2525M
@@ -265,6 +268,6 @@ tp_lp_tests 2525M
 echo "<<< gpt 89B model - tensor parallelism >>>"
 tp_tests 89B 8 # heads = 96
 #echo "<<< gpt 89B model - layer parallelism >>>"
-#lp_pp_tests 89B 8 # layers = 48
+#lp_pp_tests 89B 8 # layers = 48 # fails
 #echo "<<< gpt 89B model - tensor+layer parallelism >>>"
-#tp_lp_tests 89B
+#tp_lp_tests 89B # fails
