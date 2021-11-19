@@ -1,4 +1,4 @@
-# ex) ./pytorch/scripts/mgwg_gpt_sample.run_time.sh 125M 256 32 8 8 1 1 1
+# ex) ./pytorch/scripts/mgwg_gpt_sample.run_time.sh 124M 256 32 8 8 1 1 1
 
 # $1 = <model_name>
 # $2 = max input sequence length ( S1 )
@@ -9,7 +9,7 @@
 # $7 = layer_para_size
 # $8 = n_gpu
 
-if [ $# -lt 7 ]; then
+if [ $# -lt 8 ]; then
     echo "More arguments are needed."
     exit 1
 fi
@@ -32,44 +32,7 @@ if [ $n_gpu != $_n_gpu  ]; then
     exit 1
 fi
 
-if [ $model_name == "124M" ]; then
-    layer_num=12
-    head_num=12
-    size_per_head=64
-    vocab_size=50257
-    vara="../models/openai-gpt-models/c-model/124m/"
-    _vara="-gpu"
-    ckpt_path="$vara$tensor_para_size$_vara"
-elif [ $model_name == "1558M" ]; then
-    layer_num=48
-    head_num=25
-    size_per_head=64
-    vocab_size=50257
-    vara="../models/openai-gpt-models/c-model/1558m/"
-    _vara="-gpu"
-    ckpt_path="$vara$tensor_para_size$_vara"
-elif [ $model_name == "89B" ]; then
-    layer_num=48
-    head_num=96
-    size_per_head=128
-    vocab_size=51200
-    ckpt_path=-1
-elif [ $model_name == "175B" ]; then
-    layer_num=96
-    head_num=96
-    size_per_head=128
-    vocab_size=51200
-    ckpt_path=-1
-elif [ $model_name == "test" ]; then
-    layer_num=48
-    head_num=25
-    size_per_head=64
-    vocab_size=50257
-    ckpt_path=-1
-else
-    echo "wrong model name"
-    exit 1
-fi
+source ./pytorch/scripts/mgwg_gpt_sample.model_params.sh
 
 echo $ckpt_path
 

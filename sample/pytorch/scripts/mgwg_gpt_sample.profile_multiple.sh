@@ -1,23 +1,44 @@
 #! /bin/bash
+# Compatible with nsys CLI tool 2021.3.xx or later.
+# In nvidia container image, remove pre-installed nsight-systems CLI tool.
+# apt remove -y nsight-systems-cli-2020.3.4 && rm -f /usr/local/cuda/bin/nsys
+# Usage: bash mgwg_gpt_sample.profile_multiple.sh [test_name]
+#        test_name - default: "YYYYmmDDHHMMSS"
+# Output will be saved to output_${test_name} directory.
+# Set environment variables
+#   SLEEP_TIME=xx (time between each runs. default: 5)
+#   BATCH_SIZE=xx (default: 8)
+#   DRY_RUN=true (default: false)
+#   SKIP_PREPARE=true (default: false, for debugging)
+#   SKIP_TIMERUN=true (default: false)
+#   SKIP_PROFILE=true (default: false)
+#   PROFILE_WITH_TIMERUN=true (default: false)
+#   CAPTURE_GPU_METRICS=true (default: false)
 
-outdir=${1:-output-$(date +'%Y%m%d%H%M%S')}
-if [[ "${outdir}" == "none" ]]; then
-  dry_run=true
+sleep_time=${SLEEP_TIME:-5}
+batch_size=${BATCH_SIZE:-8}
+
+if [[ "${DRY_RUN}" == "true" ]]; then
   echo "Dry run for listing configurations..."
 else
+  test_name=${1:-$(date +'%Y%m%d%H%M%S')}
+  outdir="output_${test_name}"
   mkdir -p "${outdir}"
   echo "Output files will be saved to ${outdir}."
 
-  summary_file="${outdir}/gpt_summary.csv"
+  summary_file="${outdir}/gpt_summary_${test_name}.csv"
   echo "suffix,model,seq1,seq2,batch_size,local_bs,tensor_p,layer_p,pipeline_p,gpus," \
-      "prepare_ret,timerun_ret,profile_ret,nsys_abort," \
       "gpt_time_costs_n,gpt_time_costs_mean," \
+      "prepare_ret,timerun_ret,profile_ret,nsys_abort," \
       "prepare_time,timerun_time,profile_time," \
       "prepare_out,prepare_err,timerun_out,timerun_err,profile_out,profile_err,nsys_report" \
       | tr -d " " > "${summary_file}"
 fi
 
-sleep_time=5
+profile_target="./pytorch/scripts/mgwg_gpt_sample.run.sh"
+if [[ "${PROFILE_WITH_TIMERUN}" == "true" ]]; then
+  profile_target="./pytorch/scripts/mgwg_gpt_sample.run_time.sh"
+fi
 
 function start_timer() {
   SECONDS=0
@@ -28,10 +49,30 @@ function get_time_elapsed() {
   printf "%02d:%02d:%02d" $((${duration}/3600)) $(((${duration}/60)%60)) $((${duration}%60))
 }
 
+function get_gpu_metrics_device() {
+  local devices=none
+  if [[ "${CAPTURE_GPU_METRICS}" == "true" ]]; then
+    local gpus=$1
+    if (( ${gpus} > 0 )); then
+      devices=0
+      local id=1
+      while (( ${id} < ${gpus} )); do
+        devices="${devices},${id}"
+        id=$((${id}+1))
+      done
+    fi
+  fi
+  echo "${devices}"
+}
+
 function get_gpt_time_costs() {
+  if [[ "${SKIP_TIMERUN}" == "true" ]]; then
+    echo "skip skip"
+    return
+  fi
   local file=$1
   if [[ ! -f ${file} ]]; then
-    echo "0 N/E"
+    echo "no_file N/A"
     return
   fi
   local nums=$(egrep "^\[INFO\] GPT time costs: ([0-9]+(\.[0-9]*)?) ms$" ${file} \
@@ -48,6 +89,15 @@ function get_gpt_time_costs() {
   expression="${expression})/${cnt}"
   mean=$(python -c "print(${expression})")
   echo "${cnt} ${mean}"
+}
+
+function chk_file() {
+  local file=$1
+  if [[ -f "${outdir}/${file}" ]]; then
+    echo "${file}"
+  else
+    echo "no_file(${file})"
+  fi
 }
 
 function run_experiment() {
@@ -73,75 +123,71 @@ function run_experiment() {
   printf "<< model:%s / s1:%-3d / s2:%-3d / bs:%-2d / lbs:%-2d / tp:%-d / lp:%-d / pp:%-d / gpus:%-d >>\n" \
       ${model} ${s1} ${s2} ${bs} ${lbs} ${tp} ${lp} ${pp} ${gpus}
 
-  if [[ "${dry_run}" == "true" ]]; then
+  if [[ "${DRY_RUN}" == "true" ]]; then
     return
   fi
-  case ${gpus} in
-    1)
-      devices=0
-      ;;
-    2)
-      devices=0,1
-      ;;
-    4)
-      devices=0,1,2,3
-      ;;
-    5)
-      devices=0,1,2,3,4
-      ;;
-    *)
-      devices=all
-      ;;
-  esac
 
-  echo "[$(date +'%Y-%m-%dT%H:%M:%S')] Preparing... ${suffix}"
-  start_timer
-  bash ./pytorch/scripts/mgwg_gpt_sample.prepare.sh \
-      "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
-      > "${outdir}/prepare${suffix}.txt" 2> "${outdir}/prepare${suffix}_err.txt"
-  prepare_ret=$? # No local
-  local prepare_time=$(get_time_elapsed)
-  echo "Elapsed time: ${prepare_time}"
-
-  sleep ${sleep_time}
-
-  echo "[$(date +'%Y-%m-%dT%H:%M:%S')] Measuring time... ${suffix}"
-  start_timer
-  bash ./pytorch/scripts/mgwg_gpt_sample.run_time.sh \
-      "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
-      > "${outdir}/timerun${suffix}.txt" 2> "${outdir}/timerun${suffix}_err.txt"
-  timerun_ret=$? # No local
-  local timerun_time=$(get_time_elapsed)
-  echo "Elapsed time: ${timerun_time}"
-
-  sleep ${sleep_time}
-
-  echo "[$(date +'%Y-%m-%dT%H:%M:%S')] Profiling... ${suffix}"
-  start_timer
-  nsys profile -o "${outdir}/profile${suffix}" --force-overwrite true \
-      --gpu-metrics-device="${devices}" \
-      bash ./pytorch/scripts/mgwg_gpt_sample.run.sh \
-      "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
-      > "${outdir}/profile${suffix}.txt" 2> "${outdir}/profile${suffix}_err.txt"
-  profile_ret=$? # No local
-  local profile_time=$(get_time_elapsed)
-  echo "Elapsed time: ${profile_time}"
-
-  local nsys_abort=false
-  if [[ "${profile_ret}" == "134" ]]; then
-    nsys_abort=true
+  local prepare_ret="skip"
+  local prepare_time="skip"
+  if [[ "${SKIP_PREPARE}" != "true" ]]; then
+    echo "[$(date +'%Y-%m-%dT%H:%M:%S')] Preparing... ${suffix}"
+    start_timer
+    bash ./pytorch/scripts/mgwg_gpt_sample.prepare.sh \
+        "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
+        > "${outdir}/prepare${suffix}.txt" 2> "${outdir}/prepare${suffix}_err.txt"
+    prepare_ret=$?
+    prepare_time=$(get_time_elapsed)
+    echo "Returned code: ${prepare_ret} / Elapsed time: ${prepare_time}"
+    sleep ${sleep_time}
   fi
+
+  local timerun_ret="skip"
+  local timerun_time="skip"
+  if [[ "${SKIP_TIMERUN}" != "true" ]]; then
+    echo "[$(date +'%Y-%m-%dT%H:%M:%S')] Measuring time... ${suffix}"
+    start_timer
+    bash ./pytorch/scripts/mgwg_gpt_sample.run_time.sh \
+        "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
+        > "${outdir}/timerun${suffix}.txt" 2> "${outdir}/timerun${suffix}_err.txt"
+    timerun_ret=$?
+    timerun_time=$(get_time_elapsed)
+    echo "Returned code: ${timerun_ret} / Elapsed time: ${timerun_time}"
+    sleep ${sleep_time}
+  fi
+
+  local profile_ret="skip"
+  local profile_time="skip"
+  local nsys_abort="skip"
+  if [[ "${SKIP_PROFILE}" != "true" ]]; then
+    local gpu_metrics_device="$(get_gpu_metrics_device ${gpus})"
+    echo "[$(date +'%Y-%m-%dT%H:%M:%S')] Profiling... ${suffix}"
+    start_timer
+    nsys profile -o "${outdir}/profile${suffix}" --force-overwrite true \
+        --gpu-metrics-device="${gpu_metrics_device}" \
+        bash "${profile_target}" \
+        "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
+        > "${outdir}/profile${suffix}.txt" 2> "${outdir}/profile${suffix}_err.txt"
+    profile_ret=$?
+    profile_time=$(get_time_elapsed)
+    echo "Returned code: ${profile_ret} / Elapsed time: ${profile_time}"
+    if [[ "${profile_ret}" == "134" ]]; then
+      nsys_abort="maybe"
+    else
+      nsys_abort="no"
+    fi
+    sleep ${sleep_time}
+  fi
+
   local gpt_time_costs=$(get_gpt_time_costs "${outdir}/timerun${suffix}.txt")
   echo "${suffix},${model},${s1},${s2},${bs},${lbs},${tp},${lp},${pp},${gpus}," \
-      "${prepare_ret},${timerun_ret},${profile_ret},${nsys_abort}," \
       "$(echo ${gpt_time_costs} | awk '{print $1}'),$(echo ${gpt_time_costs} | awk '{print $2}')," \
+      "${prepare_ret},${timerun_ret},${profile_ret},${nsys_abort}," \
       "${prepare_time},${timerun_time},${profile_time}," \
-      "prepare${suffix}.txt,prepare${suffix}_err.txt," \
-      "timerun${suffix}.txt,timerun${suffix}_err.txt," \
-      "profile${suffix}.txt,profile${suffix}_err.txt,profile${suffix}.nsys-rep" \
+      "$(chk_file prepare${suffix}.txt),$(chk_file prepare${suffix}_err.txt)," \
+      "$(chk_file timerun${suffix}.txt),$(chk_file timerun${suffix}_err.txt)," \
+      "$(chk_file profile${suffix}.txt),$(chk_file profile${suffix}_err.txt)," \
+      "$(chk_file profile${suffix}.nsys-rep)" \
       | tr -d " " >> "${summary_file}"
-
-  sleep ${sleep_time}
 }
 
 function batches_and_seq_lens() {
@@ -150,9 +196,9 @@ function batches_and_seq_lens() {
   local lp=$3
   local pp=$4
   # fix bs to 8 for now
-  for bs in 8; do
-    run_experiment "${model}" 1 32 8 "${tp}" "${lp}" "${pp}"
-    run_experiment "${model}" 512 1 8 "${tp}" "${lp}" "${pp}"
+  for bs in ${batch_size}; do
+    run_experiment "${model}" 1 32 ${bs} "${tp}" "${lp}" "${pp}"
+    run_experiment "${model}" 512 1 ${bs} "${tp}" "${lp}" "${pp}"
   done
 }
 
@@ -200,16 +246,25 @@ tp_tests 124M 2 4 # heads = 12
 echo "<<< gpt 124M model - layer(/pipeline) parallelism >>>"
 lp_pp_tests 124M 2 4 # layers = 12
 
-echo "<<< gpt 1588M model - without parallelism >>>"
-np_tests 1588M
-echo "<<< gpt 1588M model - tensor parallelism >>>"
-tp_tests 1558M 5 # heads = 25
-echo "<<< gpt 1588M model - layer(/pipeline) parallelism >>>"
-lp_pp_tests 1558M 2 4 8 # layers = 48
+#echo "<<< gpt 1558M model - without parallelism >>>"
+#np_tests 1558M
+#echo "<<< gpt 1558M model - tensor parallelism >>>"
+#tp_tests 1558M 5 # heads = 25
+#echo "<<< gpt 1558M model - layer(/pipeline) parallelism >>>"
+#lp_pp_tests 1558M 2 4 8 # layers = 48
+
+echo "<<< gpt 2525M model - without parallelism >>>"
+np_tests 2525M
+echo "<<< gpt 2525M model - tensor parallelism >>>"
+tp_tests 2525M 2 4 8 # heads = 32
+echo "<<< gpt 2525M model - layer(/pipeline) parallelism >>>"
+lp_pp_tests 2525M 2 4 8 # layers = 48
+echo "<<< gpt 2525M model - tensor+layer parallelism >>>"
+tp_lp_tests 2525M
 
 echo "<<< gpt 89B model - tensor parallelism >>>"
 tp_tests 89B 8 # heads = 96
-echo "<<< gpt 89B model - layer parallelism >>>"
-lp_pp_tests 89B 8 # layers = 48
-echo "<<< gpt 89B model - tensor+layer parallelism >>>"
-tp_lp_tests 89B
+#echo "<<< gpt 89B model - layer parallelism >>>"
+#lp_pp_tests 89B 8 # layers = 48
+#echo "<<< gpt 89B model - tensor+layer parallelism >>>"
+#tp_lp_tests 89B
