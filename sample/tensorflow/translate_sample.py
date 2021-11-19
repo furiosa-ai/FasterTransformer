@@ -49,6 +49,9 @@ from utils.bleu_score import bleu_score
 from opennmt.inputters import WordEmbedder
 from opennmt.inputters import ExampleInputter
 
+import sys
+import torch.cuda.nvtx as nvtx  #mgwg
+
 def translate_sample(args_dict):
     print("\n=============== Argument ===============")
     for key in args_dict:
@@ -165,6 +168,7 @@ def translate_sample(args_dict):
                                                                                             decoding_beamsearch_args,
                                                                                             decoder_type=0)
         
+    '''
     # tf_beamsearch_target_tokens: [batch_size, beam_width, seq_len]
     tf_beamsearch_target_tokens = target_vocab_rev.lookup(tf.cast(tf_beamsearch_target_ids, tf.int64))
     tf_beamsearch_target_length = tf.minimum(tf_beamsearch_target_length + 1, tf.shape(tf_beamsearch_target_ids)[-1])
@@ -204,6 +208,7 @@ def translate_sample(args_dict):
     op_decoder_sampling_target_tokens = target_vocab_rev.lookup(tf.cast(op_decoder_sampling_target_ids, tf.int64))
     op_decoder_sampling_target_length = tf.minimum(op_decoder_sampling_target_length + 1, tf.shape(op_decoder_sampling_target_ids)[-1])
     ### end of OP BeamSearch Decoder ###
+    '''
     
     ### Prepare Decoding variables for FasterTransformer  ###
     all_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
@@ -286,8 +291,8 @@ def translate_sample(args_dict):
     if(len(translation_result_list) == 0):
         print("[WARNING] No put any test cases.")
     
-    cuda_profiler = cudaProfiler()
-    cuda_profiler.start()
+    # cuda_profiler = cudaProfiler()
+    # cuda_profiler.start()
     for i in range(len(translation_result_list)):
         with tf.Session(config=config) as sess:
             sess.run(tf.global_variables_initializer())        
@@ -302,16 +307,34 @@ def translate_sample(args_dict):
                 half_saver.restore(sess, "translation/ckpt/fp16_model.ckpt-500000")
                 
             t1 = datetime.now()
+            nvtx_flag = False
+
             while True:
                 try:
+
+                    time.sleep(1)   #mgwg
+                    nvtx.range_push("OpenNMT Encoder+Decoder")  #mgwg
+
                     batch_tokens, batch_length = sess.run([translation_result_list[i].token_op, 
                                                            translation_result_list[i].length_op])
+
+                    nvtx.range_pop()    #mgwg
+                    time.sleep(1)   #mgwg
+
+                    if nvtx_flag :
+                        sys.exit() # mgwg
+                    else :
+                        nvtx_flag = True
+                        continue
+
                     for tokens, length in zip(batch_tokens, batch_length):
                         if translation_result_list[i].name.find("beamsearch") != -1:
                             translation_result_list[i].token_list.append(b" ".join(tokens[0][:length[0] - 2]).decode("UTF-8"))
                         else:
                             translation_result_list[i].token_list.append(b" ".join(tokens[:length - 2]).decode("UTF-8"))
                     translation_result_list[i].batch_num += 1
+
+
                 except tf.errors.OutOfRangeError:
                     break
             t2 = datetime.now()
@@ -329,7 +352,7 @@ def translate_sample(args_dict):
             os.system("rm {}".format(ref_file_path))
             
             time.sleep(60)
-    cuda_profiler.stop()
+    # cuda_profiler.stop()
 
     for t in translation_result_list:
         print("[INFO] {} translates {} batches taking {:.2f} sec to translate {} tokens, BLEU score: {:.2f}, {:.0f} tokens/sec.".format(
