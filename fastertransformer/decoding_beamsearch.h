@@ -25,6 +25,9 @@
 #include "fastertransformer/open_decoder.h"
 #include "fastertransformer/cuda/cuda_kernels.h"
 #include "fastertransformer/utils/arguments.h"
+
+#include "fastertransformer/utils/nvtx_utils.h"
+
 #include <cuda_runtime.h>
 
 namespace fastertransformer
@@ -263,6 +266,8 @@ public:
                DecodingInitParam<DataType_> decoding_params)
   {
 
+    PUSH_RANGE("Entire Forward")    //mgwg
+
 #ifndef NDEBUG
     PRINT_FUNC_NAME_();
 #endif
@@ -326,9 +331,13 @@ public:
 
     for (uint step = 1; step <= args_.seq_len_; ++step)
     {
+
+      PUSH_RANGE("one step")    //mgwg
+
       //we use two-way buffer
       int kv_cache_id = step & 0x1;
 
+      PUSH_RANGE("input embedding")    //mgwg
       embedding_lookup_sine_position_encoding_kernel_launcher(from_tensor_[0],
                                                               decoding_params.embedding_table,
                                                               decoding_params.position_encoding_table + (step - 1) * args_.hidden_units_,
@@ -336,6 +345,8 @@ public:
                                                               m,
                                                               args_.hidden_units_,
                                                               decoding_params.stream);
+
+      POP_RANGE // "input embedding"   //mgwg
 
       int from_id, out_id;
       for (int layer = 0; layer < args_.decoder_layers_; ++layer)
@@ -361,6 +372,9 @@ public:
         cudaDeviceSynchronize();
         check_cuda_error(cudaGetLastError());
 #endif
+
+        PUSH_RANGE("one decoder layer")    //mgwg
+
         decoder_->forward(from_tensor_[from_id], decoding_params.memory_tensor,
                           K_cache_[kv_cache_id] + layer * cache_size,
                           V_cache_[kv_cache_id] + layer * cache_size,
@@ -368,16 +382,25 @@ public:
                           decoding_params.memory_sequence_length, from_tensor_[out_id], step, args_.seq_len_,
                           true, finished_buf_);
 
+        POP_RANGE // "one decoder layer"   //mgwg
+
 #ifndef NDEBUG
         cudaDeviceSynchronize();
         check_cuda_error(cudaGetLastError());
 #endif
       }
+
+      PUSH_RANGE("layer_norm")    //mgwg
+
       layer_norm(from_tensor_[out_id], decoding_params.layernorm.gamma,
                  decoding_params.layernorm.beta, decoder_normed_result_buf_, m, k, decoding_params.stream);
 
+      POP_RANGE // "layer_norm"   //mgwg
+
       DataType_ alpha = (DataType_)1.0f;
       DataType_ beta = (DataType_)0.0f;
+
+      PUSH_RANGE("classifier")    //mgwg
 
       cublasMM_cublasLtMM_wrapper_decoder(decoding_params.cublaslt_handle, 
                                           decoding_params.cublas_handle, 
@@ -391,6 +414,7 @@ public:
                                           decoding_params.stream, cublasAlgoMap_,
                                           cublas_workspace_);
             
+      POP_RANGE // "classifier"   //mgwg
 
 #ifndef NDEBUG
       cudaDeviceSynchronize();
@@ -400,6 +424,9 @@ public:
       // Beamsearch
       if (is_fuse_topk_softMax_ == true)
       {
+
+        PUSH_RANGE("fused_topk_softmax")    //mgwg
+
         topK_softMax(tmp_logits_buf_,
                      embedding_bias_ptr,
                      finished_buf_,
@@ -408,10 +435,15 @@ public:
                      reinterpret_cast<void *>(temp_storage_),
                      args_,
                      decoding_params.stream);
+
+        POP_RANGE // "fused_topk_softmax"   //mgwg
+
 #ifndef NDEBUG
         cudaDeviceSynchronize();
         check_cuda_error(cudaGetLastError());
 #endif
+
+        PUSH_RANGE("update_kernel")    //mgwg
 
         update_kernelLauncher_v2(finished_buf_,
                                  decoding_params.parent_ids + (step - 1) * m,
@@ -421,6 +453,9 @@ public:
                                  finished_count_buf_,
                                  args_,
                                  decoding_params.stream);
+
+        POP_RANGE // "update_kernel"   //mgwg
+
 #ifndef NDEBUG
         cudaDeviceSynchronize();
         check_cuda_error(cudaGetLastError());
@@ -487,11 +522,17 @@ public:
       {
         // chose which self cache to use
         int decoder_max_seq_len = (decoder_->getCacheFormat() != 0)? args_.seq_len_ : -1;
+
+        PUSH_RANGE("update_KV_cache")    //mgwg
+
         update_KV_cache_kernelLauncher(K_cache_, V_cache_,
                                       decoding_params.parent_ids + (step - 1) * m,
                                       finished_buf_,
                                       args_.batch_size_, args_.beam_width_, args_.head_num_, args_.size_per_head_, step, decoder_max_seq_len,
                                       cache_size, args_.decoder_layers_, decoding_params.stream);
+
+        POP_RANGE // "update_KV_cache"   //mgwg
+
 #ifndef NDEBUG
         cudaDeviceSynchronize();
         check_cuda_error(cudaGetLastError());
@@ -506,15 +547,25 @@ public:
       }
 
       // TODO Find a better method to check the is_finished
+
+      PUSH_RANGE("is_finished")    //mgwg
+
       cudaMemcpy(h_finished_buf_, finished_buf_, sizeof(bool) * m, cudaMemcpyDeviceToHost);
       int sum = 0;
       for (int i = 0; i < m; i++)
       {
         sum += (int)h_finished_buf_[i];
       }
+      POP_RANGE // "is_finished"   //mgwg
+
+      POP_RANGE // "one step"   //mgwg
+
       if (sum == m)
         break;
     } // end for decoding step for llop
+
+    POP_RANGE // "Entire Forward"   //mgwg
+
   }   // end of forward
 
   virtual ~DecodingBeamsearch()

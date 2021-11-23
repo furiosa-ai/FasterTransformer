@@ -16,6 +16,10 @@
 
 #include "fastertransformer/th_op/decoding.h"
 
+#ifdef USE_NVTX
+  bool NVTX_ON = true;
+#endif
+
 namespace torch_ext {
 using torch::Tensor;
 
