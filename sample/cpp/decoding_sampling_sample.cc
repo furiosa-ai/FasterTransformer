@@ -24,10 +24,6 @@
 #include <sys/time.h>
 #include <cuda_fp16.h>
 
-#ifdef USE_NVTX
-  bool NVTX_ON = true;
-#endif
-
 using namespace fastertransformer;
 
 template<typename T>

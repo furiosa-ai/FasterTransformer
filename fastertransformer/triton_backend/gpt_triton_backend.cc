@@ -19,10 +19,6 @@
 
 using namespace fastertransformer;
 
-#ifdef USE_NVTX
-  bool NVTX_ON = true;
-#endif
-
 #ifdef USE_TRITONSERVER_DATATYPE
 #include "triton/core/tritonbackend.h"
 #endif

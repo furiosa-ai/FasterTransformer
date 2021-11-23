@@ -16,10 +16,5 @@
 
 #include "nvtx_utils.h"
 
-namespace nvtx
-{
-    std::string get_scope(){ return scope;}
-    void add_scope(std::string name){ scope = scope + name + "/"; return;}
-    void set_scope(std::string name){ scope = name + "/"; return;}
-    void reset_scope(){ scope = ""; return;}
-}
+// NOTHING TO DO
+// Just keep to use the same library name

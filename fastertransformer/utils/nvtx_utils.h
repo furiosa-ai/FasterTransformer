@@ -16,34 +16,18 @@
 
 #pragma once
 
-#include "nvToolsExt.h"
-#include <iostream>
-
-extern bool NVTX_ON;
-
-namespace nvtx
-{
-    static std::string scope;
-    std::string get_scope();
-    void add_scope(std::string name);
-    void set_scope(std::string name);
-    void reset_scope();
-}
-
 #ifdef USE_NVTX
 
+#include "nvToolsExt.h"
+
 #define PUSH_RANGE(name) {\
-    if(NVTX_ON == true) {\
-	cudaDeviceSynchronize();\
-        nvtxRangePush((nvtx::get_scope() + name).c_str());\
-    }\
+    cudaDeviceSynchronize();\
+    nvtxRangePush(name);\
 }
 
 #define POP_RANGE {\
-    if(NVTX_ON == true) {\
-	cudaDeviceSynchronize();\
-        nvtxRangePop();\
-    }\
+    cudaDeviceSynchronize();\
+    nvtxRangePop();\
 }
 
 #else

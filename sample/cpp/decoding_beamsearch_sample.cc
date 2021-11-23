@@ -26,10 +26,6 @@
 
 #include <fstream>
 
-#ifdef USE_NVTX
-  bool NVTX_ON = true;
-#endif
-
 using namespace fastertransformer;
 
 template<typename T>

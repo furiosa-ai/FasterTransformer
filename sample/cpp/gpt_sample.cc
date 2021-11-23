@@ -32,10 +32,6 @@
 
 static std::string MODEL_PATH_PREFIX;
 
-#ifdef USE_NVTX
-  bool NVTX_ON = true;
-#endif
-
 static inline std::string path_to_weights(const char *file, int layernum = -1, int gpu_num = 1)
 {
   if (layernum == -1)
@@ -649,7 +645,6 @@ void decoding_sample(const INIReader reader)
   cudaProfilerStart();
   // warm up
   ite = 1;
-  nvtx::set_scope("warmup_time");
   PUSH_RANGE("warmup time")
   for (int i = 0; i < ite; ++i)
   {
@@ -659,7 +654,6 @@ void decoding_sample(const INIReader reader)
   cudaDeviceSynchronize();
   MPI_Barrier(MPI_COMM_WORLD);
   POP_RANGE;
-  nvtx::reset_scope();
 
   struct timeval start, end;
   struct timeval context_start, context_end;
@@ -667,7 +661,6 @@ void decoding_sample(const INIReader reader)
   MPI_Barrier(MPI_COMM_WORLD);
   gettimeofday(&start, NULL);
 
-  nvtx::set_scope("total_time");
   PUSH_RANGE("total time")
   for (int i = 0; i < ite; ++i)
   {
@@ -682,7 +675,6 @@ void decoding_sample(const INIReader reader)
   cudaDeviceSynchronize();
   MPI_Barrier(MPI_COMM_WORLD);
   POP_RANGE;
-  nvtx::reset_scope();
   gettimeofday(&end, NULL);
 
   cudaProfilerStop();
