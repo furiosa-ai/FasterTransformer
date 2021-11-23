@@ -559,8 +559,8 @@ public:
                                                 ite,
                                                 max_seq_len,
                                                 is_final);
-            if(is_final) return;
             POP_RANGE
+            if(is_final) return;
 #ifndef NDEBUG
             cudaDeviceSynchronize();
             check_cuda_error(cudaGetLastError());
