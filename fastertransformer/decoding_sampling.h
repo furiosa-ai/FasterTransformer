@@ -25,6 +25,9 @@
 #include "fastertransformer/open_decoder.h"
 #include "fastertransformer/cuda/cuda_kernels.h"
 #include "fastertransformer/utils/arguments.h"
+
+#include "fastertransformer/utils/nvtx_utils.h"
+
 #include <cuda_runtime.h>
 
 namespace fastertransformer
@@ -276,6 +279,8 @@ public:
                DecodingInitParam<DataType_> decoding_params)
   {
 
+    PUSH_RANGE("Entire Forward")    //mgwg
+
 #ifndef NDEBUG
     PRINT_FUNC_NAME_();
 #endif
@@ -347,6 +352,11 @@ public:
 
     for (uint step = 1; step <= args_.seq_len_; ++step)
     {
+
+      PUSH_RANGE("one step")    //mgwg
+
+      PUSH_RANGE("input embedding")    //mgwg
+
       embedding_lookup_sine_position_encoding_kernel_launcher(from_tensor_[0],
                                                               decoding_params.embedding_table,
                                                               decoding_params.position_encoding_table + (step - 1) * args_.hidden_units_,
@@ -354,6 +364,8 @@ public:
                                                               args_.batch_size_,
                                                               args_.hidden_units_,
                                                               decoding_params.stream);
+
+      POP_RANGE // "input embedding"   //mgwg
 
       int from_id, out_id;
       for (int layer = 0; layer < args_.decoder_layers_; ++layer)
@@ -379,6 +391,9 @@ public:
         cudaDeviceSynchronize();
         check_cuda_error(cudaGetLastError());
 #endif
+
+        PUSH_RANGE("one decoder layer")    //mgwg
+
         decoder_->forward(from_tensor_[from_id], decoding_params.memory_tensor,
                           K_cache_[0] + layer * cache_size,
                           V_cache_[0] + layer * cache_size,
@@ -386,16 +401,25 @@ public:
                           decoding_params.memory_sequence_length, from_tensor_[out_id], step, args_.seq_len_,
                           true, finished_buf_);
 
+        POP_RANGE // "one decoder layer"   //mgwg
+
 #ifndef NDEBUG
         cudaDeviceSynchronize();
         check_cuda_error(cudaGetLastError());
 #endif
       }
+
+      PUSH_RANGE("layer_norm")    //mgwg
+
       layer_norm(from_tensor_[out_id], decoding_params.layernorm.gamma,
                  decoding_params.layernorm.beta, decoder_normed_result_buf_, m, k, decoding_params.stream);
+
+      POP_RANGE // "layer_norm"   //mgwg
       
       DataType_ alpha = (DataType_)1.0f;
       DataType_ beta = (DataType_)0.0f;
+
+      PUSH_RANGE("classifier")    //mgwg
 
       cublasMM_cublasLtMM_wrapper_decoder(decoding_params.cublaslt_handle, 
                                           decoding_params.cublas_handle, 
@@ -409,6 +433,7 @@ public:
                                           decoding_params.stream, cublasAlgoMap_,
                                           cublas_workspace_);
 
+      POP_RANGE // "classifier"   //mgwg
 
 #ifndef NDEBUG
       cudaDeviceSynchronize();
@@ -417,6 +442,9 @@ public:
 
       if (args_.candidate_num_ != 0)
       {
+
+        PUSH_RANGE("update_logits_without_softmax")    //mgwg
+
         // top k sampling
         update_logits_without_softmax(logits_buf_,
                                       embedding_bias_ptr,
@@ -424,10 +452,14 @@ public:
                                       finished_buf_,
                                       m, n, decoding_params.stream);
 
+        POP_RANGE // "update_logits_without_softmax"   //mgwg
+
 #ifndef NDEBUG
       cudaDeviceSynchronize();
       check_cuda_error(cudaGetLastError());
 #endif
+
+        PUSH_RANGE("topK_sampling")    //mgwg
 
         topK_sampling_kernel_kernelLauncher_v2(topk_workspace_,
                                                topk_workspace_size_,
@@ -439,9 +471,15 @@ public:
                                                args_,
                                                decoding_params.stream,
                                                args_.batch_size_);
+
+        POP_RANGE // "topK_sampling"   //mgwg
+
       }
       else if (args_.probability_threshold_ != 0.0)
       {
+
+        PUSH_RANGE("softmax")    //mgwg
+
         // top p sampling
         softmax_kernelLauncher(logits_buf_,
                                embedding_bias_ptr,
@@ -449,10 +487,14 @@ public:
                                finished_buf_,
                                m, n, n, decoding_params.stream);
 
+        POP_RANGE // "softmax"   //mgwg
+
 #ifndef NDEBUG
       cudaDeviceSynchronize();
       check_cuda_error(cudaGetLastError());
 #endif
+
+        PUSH_RANGE("topP_sampling")    //mgwg
 
         topP_sampling_kernel_kernelLauncher_v2(topp_workspace_,
                                                topp_workspace_size_,
@@ -468,6 +510,9 @@ public:
                                                n,
                                                decoding_params.stream,
                                                args_.batch_size_);
+
+        POP_RANGE // "topP_sampling"   //mgwg
+
       }
 
       word_ids_buf_ = decoding_params.output_ids + (step - 1) * args_.batch_size_;
@@ -477,6 +522,8 @@ public:
       check_cuda_error(cudaGetLastError());
 #endif
 
+      PUSH_RANGE("is_finished")    //mgwg
+
       // TODO Find a better method to check the is_finished
       cudaMemcpy(h_finished_buf_, finished_buf_, sizeof(bool) * args_.batch_size_, cudaMemcpyDeviceToHost);
       uint sum = 0;
@@ -484,9 +531,14 @@ public:
       {
         sum += (int)h_finished_buf_[i];
       }
+
+      POP_RANGE // "is_finished"   //mgwg
+      POP_RANGE // "one step"   //mgwg
+
       if (sum == args_.batch_size_)
         break;
     }
+    POP_RANGE // "Entire Forward"   //mgwg
   }
 
   virtual ~DecodingSampling()
