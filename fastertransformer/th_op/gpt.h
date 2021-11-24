@@ -229,6 +229,9 @@ public:
 
   void forward(Tensor& start_ids, Tensor& start_lengths, Tensor& attn_mask, Tensor& output_ids, int output_len) override
   {
+
+    PUSH_RANGE("Constructing")
+
     // Set cudaStream, and cublasHandlers.
     cudaStream_t stream = at::cuda::getCurrentCUDAStream().stream();
     cublasHandle_t cublasHandle = at::cuda::getCurrentCUDABlasHandle();
@@ -271,8 +274,15 @@ public:
     decoding_params.request_input_len = decoding_params.max_input_len;
     decoding_params.output_ids = get_ptr<int>(output_ids);
 
+    POP_RANGE // Constructing
+
+    PUSH_RANGE("forward_s1")
     decoding->forward_context(param, decoding_params);
+    POP_RANGE // forward_s1
+
+    PUSH_RANGE("forward_s2")
     decoding->forward(param, decoding_params);
+    POP_RANGE // forward_s2
 
     // TODO This is a workaround. Better to move it into the deconstructor, but need to fix the "Caught signal 11 (Segmentation fault: address not mapped to object at address" error first.
     delete decoding;

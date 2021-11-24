@@ -482,6 +482,9 @@ public:
         const int local_batch = l_parallel_param_.local_batch_size;
         for (size_t step = input_len; step < max_len; ++step)
         {
+
+            PUSH_RANGE("one step")
+
             const int ite_num = request_batch_size / local_batch;
             for(size_t ite = 0; ite < ite_num; ite++)
             {
@@ -859,6 +862,7 @@ public:
             if (is_generation_done) {
                 break;
             }
+            POP_RANGE // one step
         } // end for decoding step for loop
         if(l_parallel_param_.rank == 0 && l_parallel_param_.world_size > 1)
         {
