@@ -59,7 +59,7 @@ function get_gpu_metrics_device() {
       local id=1
       while (( ${id} < ${gpus} )); do
         devices="${devices},${id}"
-        id=$((${id}+1))
+        (( id++ ))
       done
     fi
   fi
@@ -160,21 +160,26 @@ function run_experiment() {
   local nsys_abort="skip"
   if [[ "${SKIP_PROFILE}" != "true" ]]; then
     local gpu_metrics_device="$(get_gpu_metrics_device ${gpus})"
-    echo "[$(date +'%Y-%m-%dT%H:%M:%S')] Profiling... ${suffix}"
-    start_timer
-    nsys profile -o "${outdir}/profile${suffix}" --force-overwrite true \
-        --gpu-metrics-device="${gpu_metrics_device}" \
-        bash "${profile_target}" \
-        "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
-        > "${outdir}/profile${suffix}.txt" 2> "${outdir}/profile${suffix}_err.txt"
-    profile_ret=$?
-    profile_time=$(get_time_elapsed)
-    echo "Returned code: ${profile_ret} / Elapsed time: ${profile_time}"
-    if [[ "${profile_ret}" == "134" ]]; then
-      nsys_abort="maybe"
-    else
-      nsys_abort="no"
-    fi
+    local count=10
+    while (( ${count} > 0 )); do
+      (( count-- ))
+      echo "[$(date +'%Y-%m-%dT%H:%M:%S')] Profiling... ${suffix}"
+      start_timer
+      nsys profile -o "${outdir}/profile${suffix}" --force-overwrite true \
+          --gpu-metrics-device="${gpu_metrics_device}" \
+          bash "${profile_target}" \
+          "${model}" "${s1}" "${s2}" "${bs}" "${lbs}" "${tp}" "${lp}" "${gpus}" \
+          > "${outdir}/profile${suffix}.txt" 2> "${outdir}/profile${suffix}_err.txt"
+      profile_ret=$?
+      profile_time=$(get_time_elapsed)
+      echo "Returned code: ${profile_ret} / Elapsed time: ${profile_time}"
+      if [[ "${profile_ret}" == "134" ]]; then
+        nsys_abort="maybe"
+      else
+        nsys_abort="no"
+        break
+      fi
+    done
     sleep ${sleep_time}
     if [[ "${PROFILE_WITH_TIMERUN}" == "true" ]]; then
       p_gpt_time_costs=$(get_gpt_time_costs "${outdir}/profile${suffix}.txt")
