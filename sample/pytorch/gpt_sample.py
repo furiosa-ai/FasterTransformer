@@ -149,6 +149,15 @@ def main():
         nvtx.range_pop()    #mgwg
         time.sleep(1)   #mgwg
 
+        time.sleep(1)   #mgwg
+        nvtx.range_push("GPT forward")  #mgwg
+
+        # Generate tokens.
+        tokens_batch = gpt(start_ids, start_lengths, attn_mask)
+
+        nvtx.range_pop()    #mgwg
+        time.sleep(1)   #mgwg
+
         if tokens_batch is not None:  # only a thread (rank 0) gets the output, while the others are supposed to return None.
             outputs = []
             tokens_batch = tokens_batch.cpu().numpy()
